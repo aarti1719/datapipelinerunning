@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ''
+Parameters:
+  OutputBucket:
+    Default: pru-wsg-lab-sage-prod-data
+    Description: S3 output bucket
+    Type: String
+  InputBucket:
+    Default: pru-wsg-lab-sage-prod-scripts
+    Description: S3 scripts bucket
+    Type: String  
+  SecurityGroup:
+    Default: 'sg-000a9063e98308975 '
+    Description: Security Group for EC2 instance
+    Type: String
+  PrimarySubnet:
+    Default: subnet-03c106fac9d1a9cfe
+    Description: Subnet for EC2 instance
+    Type: String
+
+
+Resources:
+   PostgreSQLInputS3Output:
+    Type: 'AWS::DataPipeline::Pipeline'
+    Properties:
+      Name: PostgreSQLInputS3Output
+      Description: Pipeline to copy data from PostgreSQL
+      Activate: true
+      ParameterObjects:
+        - Id: myOutputS3Loc
+          Attributes:
+            - Key: description
+              StringValue: S3 output bucket
+            - Key: type
+              StringValue: 'AWS::S3::ObjectKey'
+            - Key: default
+              StringValue: !Sub 's3://${OutputBucket}/Output'
+        - Id: myS3StagingPath
+          Attributes:
+            - Key: description
+              StringValue: S3 input bucket
+            - Key: type
+              StringValue: 'AWS::S3::ObjectKey'
+            - Key: default
+              StringValue: !Sub 's3://${InputBucket}/Scripts'
+        
+        - Id: myS3LogURI
+          Attributes:
+            - Key: description
+              StringValue: S3 Log bucket
+            - Key: type
+              StringValue: 'AWS::S3::ObjectKey'
+            - Key: default
+              StringValue: !Sub 's3://aws-logs-${AWS::AccountId}-${AWS::Region}/sage-datapipeline/logs'
+
+        - Id: myEc2RdsSecurityGrps
+          Attributes:
+            - Key: description
+              StringValue: RDS PGSQL security group(s)
+            - Key: type
+              StringValue: String
+            - Key: isArray
+              StringValue: 'true'
+            - Key: optional
+              StringValue: 'true'
+            - Key: watermark
+              StringValue: !Ref SecurityGroup
+        - Id: myEc2Subnet
+          Attributes:
+            - Key: description
+              StringValue: EC2 subnet
+            - Key: type
+              StringValue: String
+            - Key: optional
+              StringValue: 'true'
+            - Key: default
+              StringValue: !Ref PrimarySubnet
+      PipelineObjects:
+        - 
+          Id: Default
+          Name: "Default"
+          Fields:
+            - 
+              Key: type
+              StringValue: Default
+            - 
+              Key: scheduleType
+              StringValue: cron
+            - 
+              Key: failureAndRerunMode
+              StringValue: CASCADE
+            - 
+              Key: role
+              StringValue: DataPipelineDefaultRole-SAGE
+            - 
+              Key: resourceRole
+              StringValue: DataPipelineDefaultResourceRole-SAGE
+            - 
+              Key: schedule
+              RefValue: DefaultSchedule
+            - 
+              Key: pipelineLogUri  
+              StringValue: "#{myS3LogURI}" 
+
+        - 
+          Id: Shell_Command_Staging_Activity
+          Name: Shell_Command_Staging_Activity
+          Fields:
+             - 
+               Key: type
+               StringValue: ShellCommandActivity
+             - 
+               Key: stage
+               StringValue: "true"
+             - 
+               Key: input
+               RefValue: New_S3_Datanode
+             - 
+               Key: output
+               RefValue: Output_S3_Datanode
+             - 
+               Key:  command
+               StringValue: "bash -x ${INPUT1_STAGING_DIR}/bashscript.sh"
+             - 
+               Key: runsOn
+               RefValue: Ec2Instance
+        - 
+          Id: New_S3_Datanode
+          Name: New_S3_Datanode
+          Fields:
+             - 
+               Key:  "type"
+               StringValue: "S3DataNode"
+             -
+               Key: "directoryPath"
+               StringValue: "#{myS3StagingPath}"
+        - 
+          Id: Output_S3_Datanode
+          Name: Output_S3_Datanode
+          Fields:
+             - 
+               Key:  "type"
+               StringValue: "S3DataNode"
+             -
+               Key: "directoryPath"
+               StringValue: "#{myOutputS3Loc}"
+               
+        - 
+          Id: Ec2Instance
+          Name: Ec2Instance
+          Fields:
+            - 
+              Key: type
+              StringValue: Ec2Resource
+            - 
+              Key: instanceType
+              StringValue: m1.small
+            - 
+              Key: securityGroupIds
+              StringValue: !Ref SecurityGroup
+            - 
+              Key: subnetId
+              StringValue:  !Ref PrimarySubnet 
+            - 
+              Key: terminateAfter
+              StringValue: 1 Hour
+            - 
+              Key: resourceRole
+              StringValue: DataPipelineDefaultResourceRole-SAGE
+            - 
+              Key: role
+              StringValue: DataPipelineDefaultRole-SAGE
+            - 
+              Key: keyPair
+              StringValue: "SAGE-DATAPIPELINE-KEY-PAIR"  
+
+        - 
+          Id: DefaultSchedule
+          Name: "RunOnce"
+          Fields:
+            - 
+              Key: occurrences
+              StringValue: '1'
+            - 
+              Key: startAt
+              StringValue: FIRST_ACTIVATION_DATE_TIME
+            - 
+              Key: type
+              StringValue: Schedule 
+            - 
+              Key: period
+              StringValue: "1 Day"
+
+
